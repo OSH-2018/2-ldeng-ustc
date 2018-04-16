@@ -35,43 +35,25 @@ int main() {
         printf("in:%s\n",infile);
         printf("out:%s\n",outfile);
 
-
-
-
-        /* 清理结尾的换行符 */
-        int i;
-        for (i = 0; cmd[i] != '\n'; i++)
-            ;
-        cmd[i] = '\0';
-
         printf("num:%d\n",num);
+        int i;
         for(i=0;i<num;i++)
             printf("%d ",cmdpos[i]);
-
+        printf("\n");
 
         for(i=0; i<num; i++){
             int j;
-            printf("command %d:\n",i);
+            printf("command %d (len:%d):\n",i,(int)strlen(args[cmdpos[i]]));
             for(j=cmdpos[i]; args[j]!=NULL; j++){
                 printf("%s\n",args[j]);
             }
         }
 
-
-        /* 拆解命令行 */
-        args[0] = cmd;
-        for (i = 0; *args[i]; i++)
-            for (args[i+1] = args[i] + 1; *args[i+1]; args[i+1]++)
-                if (*args[i+1] == ' ') {
-                    *args[i+1] = '\0';
-                    args[i+1]++;
-                    break;
-                }
-        args[i] = NULL;
-
         /* 没有输入命令 */
-        if (!args[0])
+        if (!args[0]){
+            printf("NO COMMAND\n");
             continue;
+        }
 
         /* 内建命令 */
         if (strcmp(args[0], "cd") == 0) {
@@ -112,11 +94,10 @@ void splitCmd(char cmd[], char *args[], int *num, int cmdpos[], int *intype, cha
 
     int i=-1;
     int k=0;
-    while(cmd[++i] == ' ');    //去除前端空格
+    while(isspace(cmd[++i]));    //去除前端空格
     for(; cmd[i]!='\n';){    //分离输入输出文件，去掉输入输出文件的部分在newcmd中。
 
-        if(cmd[i]=='>')
-        {
+        if(cmd[i]=='>'){
             if(cmd[i+1] != '>'){    //使用文件
                 *outtype = USEFILE;
                 i++;
@@ -128,8 +109,7 @@ void splitCmd(char cmd[], char *args[], int *num, int cmdpos[], int *intype, cha
             int j=0;
             while(isValid(cmd[i]))
             {
-                if(!isspace(cmd[i]))
-                {
+                if(!isspace(cmd[i])){
                     outfile[j++] = cmd[i];
                 }
                 i++;
@@ -140,10 +120,8 @@ void splitCmd(char cmd[], char *args[], int *num, int cmdpos[], int *intype, cha
             *intype = USEFILE;
             i++;
             int j=0;
-            while(isValid(cmd[i]))
-            {
-                if(isValid(cmd[i]))
-                {
+            while(isValid(cmd[i])){
+                if(isValid(cmd[i])){
                     infile[j++] = cmd[i];
                 }
                 i++;
@@ -164,9 +142,9 @@ void splitCmd(char cmd[], char *args[], int *num, int cmdpos[], int *intype, cha
     for(i=0; cmd[i]!='\0'; i++){
         if( cmd[i]=='|'){    //去除管道符后的空格
             newcmd[k++] = cmd[i];
-            while(cmd[++i]==' ');
+            while(isspace(cmd[++i]));
         }
-        else if( cmd[i]==' ' && (cmd[i+1]==' '||cmd[i+1]=='|') ){ //去除连续空格或管道符前的空格
+        else if( isspace(cmd[i]) && (isspace(cmd[i+1])||cmd[i+1]=='|') ){ //去除连续空格或管道符前的空格
             continue;
         }
         newcmd[k++] = cmd[i];
@@ -178,12 +156,14 @@ void splitCmd(char cmd[], char *args[], int *num, int cmdpos[], int *intype, cha
     printf("new:%s\n",cmd);
 
     int cnt = 0;    //当前用到的args
+    *num = 0;
     args[cnt] = cmd;
-    cmdpos[(*num)++] = cnt++;
+    if(isValid(cmd[0]))
+        cmdpos[(*num)++] = cnt++;
 
 
     for(i=0; cmd[i]!='\0'; i++){
-        if(cmd[i]==' '){
+        if(isspace(cmd[i])){
             cmd[i] = '\0';
             args[cnt++] = cmd + (i+1);
         }
@@ -191,7 +171,8 @@ void splitCmd(char cmd[], char *args[], int *num, int cmdpos[], int *intype, cha
             cmd[i] = '\0';
             args[cnt++] = NULL;
             args[cnt] = cmd + (i+1);
-            cmdpos[(*num)++] = cnt++;
+            if(isValid(cmd[i+1]))
+                cmdpos[(*num)++] = cnt++;
         }
     }
     args[cnt] = NULL;
