@@ -5,11 +5,12 @@
 #include <sys/wait.h>
 #include <sys/types.h>
 
+#define APPENDFILE 2
 #define USEFILE 1
 #define USESTD 0
 
 int isValid(char c);
-void splitCmd(char cmd[], int *num, int coms[], int *inType, char infile[], int *outType, char outFile[]);
+void splitCmd(char cmd[], char *args[], int *num, int cmdpos[], int *inType, char infile[], int *outType, char outFile[]);
 
 int main() {
     /* 输入的命令行 */
@@ -23,13 +24,13 @@ int main() {
         fgets(cmd, 256, stdin);
 
         int num;
-        int coms[128];
+        int cmdpos[128];
         int inType;
         int outType;
         char infile[128];
         char outfile[128];
 
-        splitCmd(cmd,&num,coms,&inType,infile,&outType,outfile);
+        splitCmd(cmd, args, &num, cmdpos, &inType, infile, &outType, outfile);
 
         printf("in:%s\n",infile);
         printf("out:%s\n",outfile);
@@ -42,6 +43,21 @@ int main() {
         for (i = 0; cmd[i] != '\n'; i++)
             ;
         cmd[i] = '\0';
+
+        printf("num:%d\n",num);
+        for(i=0;i<num;i++)
+            printf("%d ",cmdpos[i]);
+
+
+        for(i=0; i<num; i++){
+            int j;
+            printf("command %d:\n",i);
+            for(j=cmdpos[i]; args[j]!=NULL; j++){
+                printf("%s\n",args[j]);
+            }
+        }
+
+
         /* 拆解命令行 */
         args[0] = cmd;
         for (i = 0; *args[i]; i++)
@@ -88,20 +104,27 @@ int isValid(char c){
     return c!='|' && c!='\n' && c!='<' && c!='>' && c!='\0';
 }
 
-void splitCmd(char cmd[], int *num, int coms[], int *intype, char infile[], int *outtype, char outfile[]){
+void splitCmd(char cmd[], char *args[], int *num, int cmdpos[], int *intype, char infile[], int *outtype, char outfile[]){
 
     *intype = *outtype = USESTD;
 
     char newcmd[256];
 
-    int i;
+    int i=-1;
     int k=0;
-    for(i=0; cmd[i]!='\n';){
+    while(cmd[++i] == ' ');    //去除前端空格
+    for(; cmd[i]!='\n';){    //分离输入输出文件，去掉输入输出文件的部分在newcmd中。
 
         if(cmd[i]=='>')
         {
-            *outtype = USEFILE;
-            i++;
+            if(cmd[i+1] != '>'){    //使用文件
+                *outtype = USEFILE;
+                i++;
+            }
+            else{                   //在文件中追加
+                *outtype = APPENDFILE;
+                i += 2;
+            }
             int j=0;
             while(isValid(cmd[i]))
             {
@@ -131,7 +154,57 @@ void splitCmd(char cmd[], int *num, int coms[], int *intype, char infile[], int 
             newcmd[k++] = cmd[i++];
         }
     }
+    newcmd[k] = '\0';
+    while(cmd[k-1] == ' ')  //去除末尾空格
+        cmd[--k] = '\0';
+
+    memcpy(cmd, newcmd, sizeof(char)*256);   //只剩下管道部分
+
+    k=0;
+    for(i=0; cmd[i]!='\0'; i++){
+        if( cmd[i]=='|'){    //去除管道符后的空格
+            newcmd[k++] = cmd[i];
+            while(cmd[++i]==' ');
+        }
+        else if( cmd[i]==' ' && (cmd[i+1]==' '||cmd[i+1]=='|') ){ //去除连续空格或管道符前的空格
+            continue;
+        }
+        newcmd[k++] = cmd[i];
+    }
+    newcmd[k] = '\0';
+
+    memcpy(cmd, newcmd, sizeof(char)*256);   //管道两端无空格的标准模式
+
+    printf("new:%s\n",cmd);
+
+    int cnt = 0;    //当前用到的args
+    args[cnt] = cmd;
+    cmdpos[(*num)++] = cnt++;
+
+
+    for(i=0; cmd[i]!='\0'; i++){
+        if(cmd[i]==' '){
+            cmd[i] = '\0';
+            args[cnt++] = cmd + (i+1);
+        }
+        else if(cmd[i]=='|'){
+            cmd[i] = '\0';
+            args[cnt++] = NULL;
+            args[cnt] = cmd + (i+1);
+            cmdpos[(*num)++] = cnt++;
+        }
+    }
+    args[cnt] = NULL;
+
+
     return;
 
 }
+
+/*
+
+    ls 1     2  3|  cd 4 5   6   |wc 7  8 9
+
+
+*/
 
