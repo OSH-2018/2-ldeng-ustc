@@ -1,9 +1,11 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
 #include <ctype.h>
 #include <sys/wait.h>
 #include <sys/types.h>
+#include <fcntl.h>
 
 #define APPENDFILE 2
 #define USEFILE 1
@@ -11,12 +13,17 @@
 
 int isValid(char c);
 void splitCmd(char cmd[], char *args[], int *num, int cmdpos[], int *inType, char infile[], int *outType, char outFile[]);
+void myexec(char *const args[], int runtype);   //runtype = 1时，才对外部命令进行fork（）操作,runtype==0时和普通exec无异
 
 int main() {
     /* 输入的命令行 */
     char cmd[256];
     /* 命令行拆解成的各部分，以空指针结尾 */
     char *args[128];
+
+    int bkstdinfd = dup(STDIN_FILENO);      //控制台输入备份
+    int bkstdoutfd = dup(STDOUT_FILENO);    //控制台输出备份
+
     while (1) {
         /* 提示符 */
         printf("# ");
@@ -32,8 +39,8 @@ int main() {
 
         splitCmd(cmd, args, &num, cmdpos, &inType, infile, &outType, outfile);
 
-        printf("in:%s\n",infile);
-        printf("out:%s\n",outfile);
+        printf("in(type=%d):%s\n",inType,infile);
+        printf("out(type=%d):%s\n",outType,outfile);
 
         printf("num:%d\n",num);
         int i;
@@ -45,40 +52,53 @@ int main() {
             int j;
             printf("command %d (len:%d):\n",i,(int)strlen(args[cmdpos[i]]));
             for(j=cmdpos[i]; args[j]!=NULL; j++){
-                printf("%s\n",args[j]);
+                printf("argv[%d]: %s\n", j, args[j]);
             }
         }
 
         /* 没有输入命令 */
-        if (!args[0]){
+        if (num == 0){
             printf("NO COMMAND\n");
             continue;
         }
+        else if(num == 1){
+            if(inType == USEFILE){
+                int infilefd = open(infile, O_RDONLY);
+                dup2(infilefd, STDIN_FILENO);
+            }
 
-        /* 内建命令 */
-        if (strcmp(args[0], "cd") == 0) {
-            if (args[1])
-                chdir(args[1]);
-            continue;
-        }
-        if (strcmp(args[0], "pwd") == 0) {
-            char wd[4096];
-            puts(getcwd(wd, 4096));
-            continue;
-        }
-        if (strcmp(args[0], "exit") == 0)
-            return 0;
+            if(outType == USEFILE){
+                int outfilefd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, 0664);
+                dup2(outfilefd, STDOUT_FILENO);
+            }
+            else if(outType == APPENDFILE){
+                int outfilefd = open(outfile, O_WRONLY|O_CREAT|O_APPEND, 0664);
+                dup2(outfilefd, STDOUT_FILENO);
+            }
 
-        /* 外部命令 */
-        pid_t pid = fork();
-        if (pid == 0) {
-            /* 子进程 */
-            execvp(args[0], args);
-            /* execvp失败 */
-            return 255;
+            myexec(args, 1);    //内建命令直接在主进程中运行，外部命令在新进程中运行
+            dup2(bkstdinfd, STDIN_FILENO);
+            dup2(bkstdoutfd, STDOUT_FILENO);
         }
-        /* 父进程 */
-        wait(NULL);
+        else{
+            //所有命令皆在新进程中进行。
+            int pipefds[128][2];
+            int i;
+            for(int i=0; i<num; i++){
+                pipe(pipefds[i]);
+                int pid = fork();
+                if(pid == 0){   //子进程运行第i个命令
+                    //dup2(i==0:pipefds[i],i);
+                    myexec(args + cmdpos[i], 0);
+                    exit(255);
+                }
+            }
+
+
+        }
+
+
+
     }
 }
 
@@ -89,6 +109,7 @@ int isValid(char c){
 void splitCmd(char cmd[], char *args[], int *num, int cmdpos[], int *intype, char infile[], int *outtype, char outfile[]){
 
     *intype = *outtype = USESTD;
+    infile[0] = outfile[0] = '\0';
 
     char newcmd[256];
 
@@ -121,7 +142,7 @@ void splitCmd(char cmd[], char *args[], int *num, int cmdpos[], int *intype, cha
             i++;
             int j=0;
             while(isValid(cmd[i])){
-                if(isValid(cmd[i])){
+                if(!isspace(cmd[i])){
                     infile[j++] = cmd[i];
                 }
                 i++;
@@ -133,10 +154,12 @@ void splitCmd(char cmd[], char *args[], int *num, int cmdpos[], int *intype, cha
         }
     }
     newcmd[k] = '\0';
-    while(cmd[k-1] == ' ')  //去除末尾空格
-        cmd[--k] = '\0';
+    while(newcmd[k-1] == ' ')  //去除末尾空格
+        newcmd[--k] = '\0';
 
     memcpy(cmd, newcmd, sizeof(char)*256);   //只剩下管道部分
+
+    printf("midstr(len:%d):%s\n",(int)strlen(cmd),cmd);
 
     k=0;
     for(i=0; cmd[i]!='\0'; i++){
@@ -153,7 +176,7 @@ void splitCmd(char cmd[], char *args[], int *num, int cmdpos[], int *intype, cha
 
     memcpy(cmd, newcmd, sizeof(char)*256);   //管道两端无空格的标准模式
 
-    printf("new:%s\n",cmd);
+    printf("new(len:%d):%s\n",(int)strlen(cmd),cmd);
 
     int cnt = 0;    //当前用到的args
     *num = 0;
@@ -180,6 +203,34 @@ void splitCmd(char cmd[], char *args[], int *num, int cmdpos[], int *intype, cha
 
     return;
 
+}
+
+void myexec(char *const args[], int runtype){
+    /* 内建命令 */
+    if (strcmp(args[0], "cd") == 0) {
+        if (args[1])
+            chdir(args[1]);
+    }
+    else if (strcmp(args[0], "pwd") == 0) {
+        char wd[4096];
+        puts(getcwd(wd, 4096));
+    }
+    else if (strcmp(args[0], "exit") == 0)
+        exit(0);
+    else{
+        int pid = runtype==1 ? fork() : 0;      //只在runtype==1时使用新进程
+        if(pid == 0){
+            execvp(args[0], args);
+            exit(255);
+        }
+        else{
+            wait(NULL);
+            return;
+        }
+    }
+    if(runtype == 0){   //runtype==0和普通exec无异，内建命令也要返回
+        exit(0);
+    }
 }
 
 /*
