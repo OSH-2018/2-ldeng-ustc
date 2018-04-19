@@ -39,26 +39,8 @@ int main() {
 
         splitCmd(cmd, args, &num, cmdpos, &inType, infile, &outType, outfile);
 
-        printf("in(type=%d):%s\n",inType,infile);
-        printf("out(type=%d):%s\n",outType,outfile);
-
-        printf("num:%d\n",num);
-        int i;
-        for(i=0;i<num;i++)
-            printf("%d ",cmdpos[i]);
-        printf("\n");
-
-        for(i=0; i<num; i++){
-            int j;
-            printf("command %d (len:%d):\n",i,(int)strlen(args[cmdpos[i]]));
-            for(j=cmdpos[i]; args[j]!=NULL; j++){
-                printf("argv[%d]: %s\n", j, args[j]);
-            }
-        }
-
         /* 没有输入命令 */
         if (num == 0){
-            printf("NO COMMAND\n");
             continue;
         }
         else if(num == 1){
@@ -138,7 +120,6 @@ int main() {
             dup2(bkstdinfd, STDIN_FILENO);
             dup2(bkstdoutfd, STDOUT_FILENO);
         }
-        printf("LineEnd!\n");
     }
 }
 
@@ -199,8 +180,6 @@ void splitCmd(char cmd[], char *args[], int *num, int cmdpos[], int *intype, cha
 
     memcpy(cmd, newcmd, sizeof(char)*256);   //只剩下管道部分
 
-    printf("midstr(len:%d):%s\n",(int)strlen(cmd),cmd);
-
     k=0;
     for(i=0; cmd[i]!='\0'; i++){
         if( cmd[i]=='|'){    //去除管道符后的空格
@@ -215,8 +194,6 @@ void splitCmd(char cmd[], char *args[], int *num, int cmdpos[], int *intype, cha
     newcmd[k] = '\0';
 
     memcpy(cmd, newcmd, sizeof(char)*256);   //管道两端无空格的标准模式
-
-    printf("new(len:%d):%s\n",(int)strlen(cmd),cmd);
 
     int cnt = 0;    //当前用到的args
     *num = 0;
@@ -246,14 +223,6 @@ void splitCmd(char cmd[], char *args[], int *num, int cmdpos[], int *intype, cha
 }
 
 void myexec(char *const args[], int runtype){
-    printf("running:%s\n",args[0]);
-    /*if(strcmp(args[0],"wc"))
-    {
-
-        int tmp;
-        scanf("%d",&tmp);
-        printf("tmp:%d\n",tmp);
-    }*/
     /* 内建命令 */
     if (strcmp(args[0], "cd") == 0) {
         if (args[1])
@@ -265,6 +234,24 @@ void myexec(char *const args[], int runtype){
     }
     else if (strcmp(args[0], "exit") == 0)
         exit(0);
+    else if (strcmp(args[0], "export") == 0){
+        int i=1;
+        while(args[i]){
+            int j;
+            char name[128];
+            char value[128];
+            for(j=0;args[i][j]!='=';j++)
+                name[j] = args[i][j];
+            name[j] = '\0';
+            int k=0;
+            j++;
+            for(;args[i][j]!='\0';j++)
+                value[k++] = args[i][j];
+            value[k] = '\0';
+            setenv(name,value,1);
+            i++;
+        }
+    }
     else{
         int pid = runtype==1 ? fork() : 0;      //只在runtype==1时使用新进程
         if(pid == 0){
@@ -272,7 +259,6 @@ void myexec(char *const args[], int runtype){
             exit(255);
         }
         else{
-            printf("NORUNHERE!\n");
             wait(NULL);
             return;
         }
