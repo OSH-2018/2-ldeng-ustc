@@ -81,6 +81,25 @@ int main() {
             dup2(bkstdoutfd, STDOUT_FILENO);
         }
         else{
+            int infilefd;
+            int outfilefd;
+            if(inType == USEFILE){
+                infilefd = open(infile, O_RDONLY);
+            }
+            else{
+                infilefd = STDIN_FILENO;
+            }
+
+            if(outType == USEFILE){
+                outfilefd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, 0664);
+            }
+            else if(outType == APPENDFILE){
+                outfilefd = open(outfile, O_WRONLY|O_CREAT|O_APPEND, 0664);
+            }
+            else{
+                outfilefd = STDOUT_FILENO;
+            }
+
             //所有命令皆在新进程中进行。
             int pipefds[128][2];
             int i;
@@ -88,17 +107,38 @@ int main() {
                 pipe(pipefds[i]);
                 int pid = fork();
                 if(pid == 0){   //子进程运行第i个命令
-                    //dup2(i==0:pipefds[i],i);
+                    if(i == 0){
+                        dup2(infilefd ,STDIN_FILENO);
+                    }
+                    else{
+                        close(pipefds[i-1][1]);
+                        dup2(pipefds[i-1][0], STDIN_FILENO);
+                        close(pipefds[i-1][0]);
+                    }
+                    if(i == num-1){
+                        dup2(outfilefd, STDOUT_FILENO);
+                    }
+                    else{
+                        close(pipefds[i][0]);
+                        dup2(pipefds[i][1], STDOUT_FILENO);
+                        close(pipefds[i][1]);
+                    }
                     myexec(args + cmdpos[i], 0);
                     exit(255);
                 }
+                else{
+                    if(i != 0){
+                        close(pipefds[i-1][0]);
+                    }
+                    close(pipefds[i][1]);
+                }
+                wait(NULL);
             }
-
-
+            //wait(NULL); //父进程
+            dup2(bkstdinfd, STDIN_FILENO);
+            dup2(bkstdoutfd, STDOUT_FILENO);
         }
-
-
-
+        printf("LineEnd!\n");
     }
 }
 
@@ -206,6 +246,14 @@ void splitCmd(char cmd[], char *args[], int *num, int cmdpos[], int *intype, cha
 }
 
 void myexec(char *const args[], int runtype){
+    printf("running:%s\n",args[0]);
+    /*if(strcmp(args[0],"wc"))
+    {
+
+        int tmp;
+        scanf("%d",&tmp);
+        printf("tmp:%d\n",tmp);
+    }*/
     /* 内建命令 */
     if (strcmp(args[0], "cd") == 0) {
         if (args[1])
@@ -224,6 +272,7 @@ void myexec(char *const args[], int runtype){
             exit(255);
         }
         else{
+            printf("NORUNHERE!\n");
             wait(NULL);
             return;
         }
